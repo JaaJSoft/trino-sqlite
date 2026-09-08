@@ -20,14 +20,20 @@ import io.trino.plugin.jdbc.BaseJdbcClient;
 import io.trino.plugin.jdbc.BaseJdbcConfig;
 import io.trino.plugin.jdbc.ColumnMapping;
 import io.trino.plugin.jdbc.ConnectionFactory;
+import io.trino.plugin.jdbc.JdbcColumnHandle;
+import io.trino.plugin.jdbc.JdbcOutputTableHandle;
 import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
 import io.trino.plugin.jdbc.QueryBuilder;
 import io.trino.plugin.jdbc.RemoteTableName;
+import io.trino.plugin.jdbc.WriteFunction;
 import io.trino.plugin.jdbc.WriteMapping;
 import io.trino.plugin.jdbc.logging.RemoteQueryModifier;
 import io.trino.spi.TrinoException;
+import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.Type;
 
@@ -36,7 +42,11 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import static io.trino.plugin.jdbc.PredicatePushdownController.DISABLE_PUSHDOWN;
 import static io.trino.plugin.jdbc.StandardColumnMappings.bigintColumnMapping;
@@ -48,6 +58,7 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
 import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.getUnsupportedTypeHandling;
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.trino.spi.connector.ConnectorMetadata.MODIFYING_ROWS_MESSAGE;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 
 public class SqliteClient
@@ -145,6 +156,131 @@ public class SqliteClient
     @Override
     public WriteMapping toWriteMapping(ConnectorSession session, Type type)
     {
-        throw new TrinoException(NOT_SUPPORTED, READ_ONLY_MESSAGE);
+        throw readOnly();
+    }
+
+    @Override
+    public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public JdbcOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Consumer<Runnable> rollbackActionCollector)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void commitCreateTable(ConnectorSession session, JdbcOutputTableHandle handle, Set<Long> pageSinkIds)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void rollbackDestinationTableCreation(ConnectorSession session, RemoteTableName remoteTableName)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void rollbackTemporaryTableCreation(ConnectorSession session, JdbcOutputTableHandle handle)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public JdbcOutputTableHandle beginInsertTable(ConnectorSession session, JdbcTableHandle tableHandle, List<JdbcColumnHandle> columns)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public String buildInsertSql(JdbcOutputTableHandle handle, List<WriteFunction> columnWriters)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public OptionalLong delete(ConnectorSession session, JdbcTableHandle handle)
+    {
+        throw new TrinoException(NOT_SUPPORTED, MODIFYING_ROWS_MESSAGE);
+    }
+
+    @Override
+    public OptionalLong update(ConnectorSession session, JdbcTableHandle handle)
+    {
+        throw new TrinoException(NOT_SUPPORTED, MODIFYING_ROWS_MESSAGE);
+    }
+
+    @Override
+    public void dropTable(ConnectorSession session, JdbcTableHandle handle)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void renameTable(ConnectorSession session, JdbcTableHandle handle, SchemaTableName newTableName)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void truncateTable(ConnectorSession session, JdbcTableHandle handle)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column, ColumnPosition position)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void renameColumn(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle jdbcColumn, String newColumnName)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void dropColumn(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void setColumnType(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, Type type)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void dropNotNullConstraint(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void createSchema(ConnectorSession session, String schemaName)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void dropSchema(ConnectorSession session, String schemaName, boolean cascade)
+    {
+        throw readOnly();
+    }
+
+    @Override
+    public void renameSchema(ConnectorSession session, String schemaName, String newSchemaName)
+    {
+        throw readOnly();
+    }
+
+    private static TrinoException readOnly()
+    {
+        return new TrinoException(NOT_SUPPORTED, READ_ONLY_MESSAGE);
     }
 }
