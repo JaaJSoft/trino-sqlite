@@ -15,9 +15,14 @@ package dev.jaaj.trino.sqlite;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
+import io.trino.sql.planner.plan.FilterNode;
+import io.trino.sql.planner.plan.TopNNode;
+import io.trino.sql.query.QueryAssertions.QueryAssert;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
+import io.trino.testing.TestingSession;
+import org.assertj.core.api.AssertProvider;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -175,5 +180,61 @@ public class TestSqliteConnectorQueries
     public void testView()
     {
         assertQuery("SELECT id FROM positive_ids ORDER BY id", "VALUES 1, 2");
+    }
+
+    /**
+     * {@link #createQueryRunner()} builds its default session with a throwaway, empty
+     * {@code SessionPropertyManager} (the standard {@code testSessionBuilder()} default); a normal query
+     * execution swaps it for the engine's real one, but {@code QueryAssert.isFullyPushedDown()} and
+     * {@code isNotFullyPushedDown()} plan a query directly against the session they are given, without going
+     * through that substitution. Reading any JDBC catalog session property during planning (as
+     * {@code CachingJdbcClient} does for every table) then fails with "Session property ... does not exist".
+     * Plan-shape assertions need a session carrying the query runner's actual, populated session property
+     * manager instead.
+     */
+    private AssertProvider<QueryAssert> planQuery(String sql)
+    {
+        Session session = TestingSession.testSessionBuilder(getQueryRunner().getSessionPropertyManager())
+                .setCatalog(SqliteQueryRunner.CATALOG)
+                .setSchema("main")
+                .build();
+        return query(session, sql);
+    }
+
+    @Test
+    public void testNumericPredicateIsPushedDown()
+    {
+        assertThat(planQuery("SELECT id FROM all_types WHERE int_col = 42")).isFullyPushedDown();
+        assertThat(planQuery("SELECT id FROM all_types WHERE real_col > 1")).isFullyPushedDown();
+        assertThat(planQuery("SELECT id FROM all_types WHERE bool_col = true")).isFullyPushedDown();
+        assertQuery("SELECT id FROM all_types WHERE int_col = 42", "VALUES 1");
+    }
+
+    @Test
+    public void testTextPredicateStaysInTrino()
+    {
+        assertThat(planQuery("SELECT id FROM all_types WHERE text_col = 'hello'")).isNotFullyPushedDown(FilterNode.class);
+        assertQuery("SELECT id FROM all_types WHERE text_col = 'hello'", "VALUES 1");
+    }
+
+    @Test
+    public void testNocaseCollationDoesNotLeakIntoTrino()
+    {
+        // pushed down, SQLite's NOCASE collation would match both 'Alice' and 'alice'
+        assertQuery("SELECT count(*) FROM nocase WHERE name = 'alice'", "VALUES 1");
+    }
+
+    @Test
+    public void testLimitIsPushedDown()
+    {
+        assertThat(planQuery("SELECT id FROM all_types LIMIT 1")).isFullyPushedDown();
+        assertQuery("SELECT count(*) FROM (SELECT id FROM all_types LIMIT 1)", "VALUES 1");
+    }
+
+    @Test
+    public void testOrderByLimitStaysInTrino()
+    {
+        assertThat(planQuery("SELECT id FROM all_types ORDER BY id DESC LIMIT 1")).isNotFullyPushedDown(TopNNode.class);
+        assertQuery("SELECT id FROM all_types ORDER BY id DESC LIMIT 1", "VALUES 2");
     }
 }

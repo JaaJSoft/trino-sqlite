@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import static io.trino.plugin.jdbc.PredicatePushdownController.DISABLE_PUSHDOWN;
@@ -151,6 +152,18 @@ public class SqliteClient
             return mapToUnboundedVarchar(typeHandle);
         }
         return mapping;
+    }
+
+    @Override
+    protected Optional<BiFunction<String, Long, String>> limitFunction()
+    {
+        return Optional.of((sql, limit) -> sql + " LIMIT " + limit);
+    }
+
+    @Override
+    public boolean isLimitGuaranteed(ConnectorSession session)
+    {
+        return true;
     }
 
     @Override
