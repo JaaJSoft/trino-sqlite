@@ -30,6 +30,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.stream.Stream;
 
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
@@ -179,6 +180,22 @@ public class TestRemoteDatabaseFile
         remote.close();
         assertThat(copy).doesNotExist();
         assertThat(copy.getParent()).doesNotExist();
+    }
+
+    @Test
+    public void testCurrentAfterCloseFails()
+            throws Exception
+    {
+        upload("version one");
+        RemoteDatabaseFile remote = newRemoteFile();
+        remote.current(SESSION);
+        remote.close();
+        assertThatThrownBy(() -> remote.current(SESSION))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RemoteDatabaseFile for memory:///exports/app.db is closed");
+        try (Stream<Path> entries = Files.list(cacheDirectory)) {
+            assertThat(entries).isEmpty();
+        }
     }
 
     private RemoteDatabaseFile newRemoteFile()

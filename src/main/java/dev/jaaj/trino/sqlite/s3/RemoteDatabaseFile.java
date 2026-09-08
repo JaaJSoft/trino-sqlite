@@ -39,8 +39,10 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * A local copy of a database object stored on a remote filesystem, refreshed at most once per
- * interval. A refresh never touches the file a connection may have open: the new version is
- * downloaded under a fresh name, published, and the old file is deleted afterwards.
+ * interval. The new version is downloaded under a fresh name and published before the old file
+ * is unlinked, so a descriptor a connection already has open on the old file stays valid on
+ * POSIX; on Windows the delete is refused while the file is open and is retried on a later
+ * refresh.
  */
 public final class RemoteDatabaseFile
         implements Closeable
@@ -58,6 +60,8 @@ public final class RemoteDatabaseFile
     private final List<Path> staleFiles = new ArrayList<>();
     // guarded by refreshLock
     private Path directory;
+    // guarded by refreshLock
+    private boolean closed;
     private volatile Snapshot snapshot;
 
     private record Snapshot(Path file, long length, Instant lastModified, Instant checkedAt) {}
@@ -87,6 +91,9 @@ public final class RemoteDatabaseFile
             refreshLock.lock();
         }
         try {
+            if (closed) {
+                throw new IllegalStateException("RemoteDatabaseFile for " + location + " is closed");
+            }
             current = snapshot;
             if (current != null && !isDue(current)) {
                 return current.file();
@@ -106,8 +113,8 @@ public final class RemoteDatabaseFile
     private Snapshot refresh(ConnectorSession session, Snapshot previous)
     {
         Instant now = clock.instant();
-        TrinoInputFile inputFile = fileSystemFactory.create(session).newInputFile(location);
         try {
+            TrinoInputFile inputFile = fileSystemFactory.create(session).newInputFile(location);
             long length = inputFile.length();
             Instant lastModified = inputFile.lastModified();
             if (previous != null && previous.length() == length && previous.lastModified().equals(lastModified)) {
@@ -121,7 +128,7 @@ public final class RemoteDatabaseFile
                 }
             }
         }
-        catch (IOException e) {
+        catch (IOException | RuntimeException e) {
             if (previous == null) {
                 throw new TrinoException(JDBC_ERROR, "Failed to fetch SQLite database from " + location, e);
             }
@@ -137,11 +144,22 @@ public final class RemoteDatabaseFile
     {
         Path target = directory().resolve(UUID.randomUUID() + ".db");
         Path part = target.resolveSibling(target.getFileName() + ".part");
-        try (InputStream stream = inputFile.newStream()) {
-            Files.copy(stream, part);
+        try {
+            try (InputStream stream = inputFile.newStream()) {
+                Files.copy(stream, part);
+            }
+            Files.move(part, target, ATOMIC_MOVE);
+            return target;
         }
-        Files.move(part, target, ATOMIC_MOVE);
-        return target;
+        catch (IOException | RuntimeException e) {
+            try {
+                Files.deleteIfExists(part);
+            }
+            catch (IOException suppressed) {
+                e.addSuppressed(suppressed);
+            }
+            throw e;
+        }
     }
 
     private Path directory()
@@ -174,6 +192,7 @@ public final class RemoteDatabaseFile
     {
         refreshLock.lock();
         try {
+            closed = true;
             Snapshot current = snapshot;
             snapshot = null;
             if (current != null) {
