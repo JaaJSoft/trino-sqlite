@@ -22,6 +22,7 @@ import static io.trino.testing.TestingSession.testSessionBuilder;
 public final class SqliteQueryRunner
 {
     public static final String CATALOG = "sqlite";
+    public static final String SCHEMA = "main";
 
     private SqliteQueryRunner() {}
 
@@ -29,7 +30,7 @@ public final class SqliteQueryRunner
     {
         StandaloneQueryRunner queryRunner = new StandaloneQueryRunner(testSessionBuilder()
                 .setCatalog(CATALOG)
-                .setSchema("main")
+                .setSchema(SCHEMA)
                 .build());
         try {
             queryRunner.installPlugin(new SqlitePlugin());

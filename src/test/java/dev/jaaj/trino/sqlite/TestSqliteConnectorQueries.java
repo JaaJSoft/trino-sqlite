@@ -17,12 +17,9 @@ import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.TopNNode;
-import io.trino.sql.query.QueryAssertions.QueryAssert;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
-import io.trino.testing.TestingSession;
-import org.assertj.core.api.AssertProvider;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -33,6 +30,7 @@ import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static io.trino.testing.TestingSession.testSessionBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestSqliteConnectorQueries
@@ -73,6 +71,20 @@ public class TestSqliteConnectorQueries
                 "INSERT INTO autoinc (v) VALUES ('row')",
                 "CREATE VIEW positive_ids AS SELECT id FROM all_types WHERE id > 0");
         return SqliteQueryRunner.create(ImmutableMap.of("connection-url", "jdbc:sqlite:" + database));
+    }
+
+    @Override
+    protected Session getSession()
+    {
+        // QueryAssert.isFullyPushedDown()/isNotFullyPushedDown()/matches(PlanMatchPattern) plan a query
+        // directly against this session, without going through the query-dispatch path that normally
+        // rebuilds it against the engine's real SessionPropertyManager; the no-arg testSessionBuilder()
+        // used by the default session leaves that manager empty, so any catalog session property read
+        // during planning (as CachingJdbcClient does for every table) fails to resolve.
+        return testSessionBuilder(getQueryRunner().getSessionPropertyManager())
+                .setCatalog(SqliteQueryRunner.CATALOG)
+                .setSchema(SqliteQueryRunner.SCHEMA)
+                .build();
     }
 
     @Test
@@ -182,38 +194,19 @@ public class TestSqliteConnectorQueries
         assertQuery("SELECT id FROM positive_ids ORDER BY id", "VALUES 1, 2");
     }
 
-    /**
-     * {@link #createQueryRunner()} builds its default session with a throwaway, empty
-     * {@code SessionPropertyManager} (the standard {@code testSessionBuilder()} default); a normal query
-     * execution swaps it for the engine's real one, but {@code QueryAssert.isFullyPushedDown()} and
-     * {@code isNotFullyPushedDown()} plan a query directly against the session they are given, without going
-     * through that substitution. Reading any JDBC catalog session property during planning (as
-     * {@code CachingJdbcClient} does for every table) then fails with "Session property ... does not exist".
-     * Plan-shape assertions need a session carrying the query runner's actual, populated session property
-     * manager instead.
-     */
-    private AssertProvider<QueryAssert> planQuery(String sql)
-    {
-        Session session = TestingSession.testSessionBuilder(getQueryRunner().getSessionPropertyManager())
-                .setCatalog(SqliteQueryRunner.CATALOG)
-                .setSchema("main")
-                .build();
-        return query(session, sql);
-    }
-
     @Test
     public void testNumericPredicateIsPushedDown()
     {
-        assertThat(planQuery("SELECT id FROM all_types WHERE int_col = 42")).isFullyPushedDown();
-        assertThat(planQuery("SELECT id FROM all_types WHERE real_col > 1")).isFullyPushedDown();
-        assertThat(planQuery("SELECT id FROM all_types WHERE bool_col = true")).isFullyPushedDown();
+        assertThat(query("SELECT id FROM all_types WHERE int_col = 42")).isFullyPushedDown();
+        assertThat(query("SELECT id FROM all_types WHERE real_col > 1")).isFullyPushedDown();
+        assertThat(query("SELECT id FROM all_types WHERE bool_col = true")).isFullyPushedDown();
         assertQuery("SELECT id FROM all_types WHERE int_col = 42", "VALUES 1");
     }
 
     @Test
     public void testTextPredicateStaysInTrino()
     {
-        assertThat(planQuery("SELECT id FROM all_types WHERE text_col = 'hello'")).isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT id FROM all_types WHERE text_col = 'hello'")).isNotFullyPushedDown(FilterNode.class);
         assertQuery("SELECT id FROM all_types WHERE text_col = 'hello'", "VALUES 1");
     }
 
@@ -227,14 +220,14 @@ public class TestSqliteConnectorQueries
     @Test
     public void testLimitIsPushedDown()
     {
-        assertThat(planQuery("SELECT id FROM all_types LIMIT 1")).isFullyPushedDown();
+        assertThat(query("SELECT id FROM all_types LIMIT 1")).isFullyPushedDown();
         assertQuery("SELECT count(*) FROM (SELECT id FROM all_types LIMIT 1)", "VALUES 1");
     }
 
     @Test
     public void testOrderByLimitStaysInTrino()
     {
-        assertThat(planQuery("SELECT id FROM all_types ORDER BY id DESC LIMIT 1")).isNotFullyPushedDown(TopNNode.class);
+        assertThat(query("SELECT id FROM all_types ORDER BY id DESC LIMIT 1")).isNotFullyPushedDown(TopNNode.class);
         assertQuery("SELECT id FROM all_types ORDER BY id DESC LIMIT 1", "VALUES 2");
     }
 }
