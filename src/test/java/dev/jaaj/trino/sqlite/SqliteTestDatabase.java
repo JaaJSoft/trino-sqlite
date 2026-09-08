@@ -46,6 +46,10 @@ public final class SqliteTestDatabase
             throws SQLException, IOException
     {
         Path directory = Files.createTempDirectory("trino-sqlite-test");
-        return create(directory.resolve("fixture.db"), statements);
+        directory.toFile().deleteOnExit();
+        Path file = create(directory.resolve("fixture.db"), statements);
+        // deleteOnExit runs in reverse registration order, so the file is deleted before the (then empty) directory.
+        file.toFile().deleteOnExit();
+        return file;
     }
 }
