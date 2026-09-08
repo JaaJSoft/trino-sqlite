@@ -241,23 +241,11 @@
             </plugins>
         </pluginManagement>
         <plugins>
-            <!--
-              The trino-plugin packaging's fixed lifecycle binds generate-service-descriptor
-              to process-classes unconditionally, and that goal hard-fails when no class
-              implements io.trino.spi.Plugin. No main source exists yet at this task: the
-              plugin entry point lands in a later task, and this override is removed then.
-            -->
             <plugin>
                 <groupId>io.trino</groupId>
                 <artifactId>trino-maven-plugin</artifactId>
                 <version>20</version>
                 <extensions>true</extensions>
-                <executions>
-                    <execution>
-                        <id>default-generate-service-descriptor</id>
-                        <phase>none</phase>
-                    </execution>
-                </executions>
             </plugin>
 
             <!--
