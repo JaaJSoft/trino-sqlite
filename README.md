@@ -26,13 +26,15 @@ s3.aws-secret-key=...
 
 | Property | Default | Description |
 | --- | --- | --- |
-| `connection-url` | required | `jdbc:sqlite:` followed by an absolute local path or an `s3://` location |
+| `connection-url` | required | `jdbc:sqlite:` followed by an absolute local path, a `file:` URI or an `s3://`, `s3a://` or `s3n://` location |
 | `sqlite.s3.refresh-interval` | `1h` | How long a downloaded copy is served before S3 is checked for a newer version. `0s` checks on every connection. |
 | `sqlite.s3.cache-directory` | `${java.io.tmpdir}/trino-sqlite` | Parent of the per-catalog directory holding the downloaded copy |
 | `s3.*` | | The standard Trino S3 properties: `s3.endpoint`, `s3.region`, `s3.path-style-access`, credentials, IAM roles |
 
-`connection-url` rejects relative paths (they resolve against each node's working directory),
-`:memory:` and URL parameters: the connector owns the open mode.
+So `jdbc:sqlite:/data/app.db`, `jdbc:sqlite:file:///data/app.db` and
+`jdbc:sqlite:s3a://my-bucket/exports/app.db` all name a database, while relative paths (they
+resolve against each node's working directory), `:memory:` and URL parameters are rejected:
+the connector owns the open mode.
 
 The usual base-jdbc properties apply, in particular `case-insensitive-name-matching`,
 `metadata.cache-ttl`, `unsupported-type-handling` and `jdbc-types-mapped-to-varchar`.
