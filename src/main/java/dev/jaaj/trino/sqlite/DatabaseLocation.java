@@ -71,7 +71,8 @@ public sealed interface DatabaseLocation
 
         Optional<String> scheme = schemeOf(target);
         if (scheme.isPresent() && S3_SCHEMES.contains(scheme.orElseThrow())) {
-            return new Remote(Location.of(target));
+            String normalized = scheme.orElseThrow() + target.substring(scheme.orElseThrow().length());
+            return new Remote(Location.of(normalized));
         }
         if (scheme.isPresent() && !scheme.orElseThrow().equals("file")) {
             throw new IllegalArgumentException("connection-url has unsupported scheme '" + scheme.orElseThrow() + "', expected an absolute local path or an s3:// location: " + connectionUrl);

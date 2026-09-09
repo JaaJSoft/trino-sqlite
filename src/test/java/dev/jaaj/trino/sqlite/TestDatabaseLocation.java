@@ -51,6 +51,13 @@ public class TestDatabaseLocation
     }
 
     @Test
+    public void testUppercaseS3SchemeIsNormalized()
+    {
+        assertThat(DatabaseLocation.parse("jdbc:sqlite:S3://bucket/app.db"))
+                .isEqualTo(new DatabaseLocation.Remote(Location.of("s3://bucket/app.db")));
+    }
+
+    @Test
     public void testRejectsWrongPrefix()
     {
         assertThatThrownBy(() -> DatabaseLocation.parse("jdbc:postgresql://host/db"))
