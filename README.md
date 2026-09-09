@@ -41,7 +41,9 @@ The usual base-jdbc properties apply, in particular `case-insensitive-name-match
 
 The catalog exposes one schema, `main`, with the tables and views of the file. Internal
 `sqlite_*` tables are hidden. Table names are lowercased by base-jdbc's default identifier
-mapping, so a table declared `MixedCase` is listed and queried as `mixedcase`.
+mapping, so a table declared `MixedCase` is listed and queried as `mixedcase`. Set
+`case-insensitive-name-matching=true` if the file has table names containing upper-case
+letters and they should be reachable under their original case.
 
 ## Type mapping
 
@@ -103,7 +105,15 @@ copy the query fails.
 A query whose planning and execution straddle a refresh may see two versions of the file.
 This produces an SQL error at worst, never a wrong result.
 
-When the connector is closed, its cache directory is removed.
+The object is downloaded using the S3 credentials of the session that happens to trigger the
+download, and the resulting local copy is then served to every session of the catalog. Per-user
+S3 authorization (for example a security mapping keyed on the querying user) therefore does not
+apply to the catalog's data access; use Trino's access control on the catalog itself to restrict
+who can query it.
+
+When the connector is closed, its cache directory is removed on a best-effort basis: on Windows
+a copy that a connection still has open cannot be deleted, and closing the connector does not
+retry the deletion afterward.
 
 ## Read-only
 
