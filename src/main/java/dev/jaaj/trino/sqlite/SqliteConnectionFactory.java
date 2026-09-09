@@ -13,10 +13,12 @@
  */
 package dev.jaaj.trino.sqlite;
 
+import dev.jaaj.trino.sqlite.s3.RemoteDatabaseFile;
 import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.spi.connector.ConnectorSession;
 import org.sqlite.JDBC;
 import org.sqlite.SQLiteConfig;
+import org.sqlite.SQLiteOpenMode;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -51,6 +53,22 @@ public final class SqliteConnectionFactory
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
         return new SqliteConnectionFactory(_ -> url, config.toProperties(), () -> {});
+    }
+
+    /**
+     * The copy is private to this catalog and nobody writes to it, so {@code immutable=1} lets
+     * SQLite skip locking and journal checks on it. The URI form is required for that parameter,
+     * hence OPEN_URI.
+     */
+    public static SqliteConnectionFactory forRemoteFile(RemoteDatabaseFile remote)
+    {
+        SQLiteConfig config = new SQLiteConfig();
+        config.setReadOnly(true);
+        config.setOpenMode(SQLiteOpenMode.OPEN_URI);
+        return new SqliteConnectionFactory(
+                session -> JDBC.PREFIX + remote.current(session).toUri() + "?immutable=1",
+                config.toProperties(),
+                remote::close);
     }
 
     @Override
