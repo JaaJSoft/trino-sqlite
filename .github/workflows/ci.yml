@@ -34,6 +34,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Trino 483 requires Java 25; the build fails on air.java.version with anything older.
       - uses: actions/setup-java@v4
