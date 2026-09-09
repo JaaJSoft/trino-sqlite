@@ -183,6 +183,20 @@ public class TestSqliteConnectorQueries
     }
 
     @Test
+    public void testPushedDownPredicateSkipsValuesOfAnotherStorageClass()
+    {
+        // n = 0 is pushed down as a bigint-column equality; SQLite compares its stored TEXT 'abc'
+        // against the INTEGER literal 0 by storage class, never as the coerced value Trino reads back,
+        // so the row is silently dropped instead of matching like the Trino-evaluated form below.
+        assertThat(query("SELECT n FROM coerced WHERE n = 0")).skipResultsCorrectnessCheckForPushdown().isFullyPushedDown();
+        assertQuery("SELECT count(*) FROM coerced WHERE n = 0", "VALUES 0");
+        // CAST(n AS varchar) is not a simple column predicate, so base-jdbc evaluates it in Trino,
+        // where the coerced value of 0 is compared as read: this is the form users should filter on.
+        assertThat(query("SELECT n FROM coerced WHERE CAST(n AS varchar) = '0'")).isNotFullyPushedDown(FilterNode.class);
+        assertQuery("SELECT count(*) FROM coerced WHERE CAST(n AS varchar) = '0'", "VALUES 1");
+    }
+
+    @Test
     public void testMixedCaseTableIsReachableLowercase()
     {
         assertQuery("SELECT name FROM mixedcase", "VALUES 'x'");
