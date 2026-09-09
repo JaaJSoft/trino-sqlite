@@ -50,9 +50,9 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import static io.trino.plugin.jdbc.PredicatePushdownController.DISABLE_PUSHDOWN;
-import static io.trino.plugin.jdbc.StandardColumnMappings.bigintColumnMapping;
-import static io.trino.plugin.jdbc.StandardColumnMappings.booleanColumnMapping;
-import static io.trino.plugin.jdbc.StandardColumnMappings.doubleColumnMapping;
+import static io.trino.plugin.jdbc.StandardColumnMappings.bigintWriteFunction;
+import static io.trino.plugin.jdbc.StandardColumnMappings.booleanWriteFunction;
+import static io.trino.plugin.jdbc.StandardColumnMappings.doubleWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.varbinaryColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.varcharReadFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
@@ -60,6 +60,9 @@ import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.getUnsuppor
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.connector.ConnectorMetadata.MODIFYING_ROWS_MESSAGE;
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 
 public class SqliteClient
@@ -133,13 +136,17 @@ public class SqliteClient
 
         String declaredType = typeHandle.jdbcTypeName().orElse("");
         if (declaredType.equalsIgnoreCase("BOOLEAN") || declaredType.equalsIgnoreCase("BOOL")) {
-            return Optional.of(booleanColumnMapping());
+            return Optional.of(ColumnMapping.booleanMapping(BOOLEAN, ResultSet::getBoolean, booleanWriteFunction(), DISABLE_PUSHDOWN));
         }
 
+        // No column predicate is pushed into SQLite. SQLite compares a predicate against the value
+        // as stored, while the read path coerces it to the column's affinity, so a pushed predicate
+        // drops rows Trino would keep: TEXT 'abc' in an INTEGER column reads back as 0 but does not
+        // match a pushed n = 0. A TEXT column may also carry COLLATE NOCASE, which matches more than
+        // Trino would. Only LIMIT is pushed down.
         Optional<ColumnMapping> mapping = switch (SqliteTypeAffinity.fromDeclaredType(declaredType)) {
-            case INTEGER -> Optional.of(bigintColumnMapping());
-            case REAL -> Optional.of(doubleColumnMapping());
-            // a text column may carry COLLATE NOCASE, which would make SQLite's comparison differ from Trino's
+            case INTEGER -> Optional.of(ColumnMapping.longMapping(BIGINT, ResultSet::getLong, bigintWriteFunction(), DISABLE_PUSHDOWN));
+            case REAL -> Optional.of(ColumnMapping.doubleMapping(DOUBLE, ResultSet::getDouble, doubleWriteFunction(), DISABLE_PUSHDOWN));
             case TEXT -> Optional.of(ColumnMapping.sliceMapping(
                     createUnboundedVarcharType(),
                     varcharReadFunction(createUnboundedVarcharType()),

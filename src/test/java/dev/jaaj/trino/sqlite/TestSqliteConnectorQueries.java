@@ -183,17 +183,12 @@ public class TestSqliteConnectorQueries
     }
 
     @Test
-    public void testPushedDownPredicateSkipsValuesOfAnotherStorageClass()
+    public void testPredicateOnCoercedValueIsEvaluatedInTrino()
     {
-        // n = 0 is pushed down as a bigint-column equality; SQLite compares its stored TEXT 'abc'
-        // against the INTEGER literal 0 by storage class, never as the coerced value Trino reads back,
-        // so the row is silently dropped instead of matching like the Trino-evaluated form below.
-        assertThat(query("SELECT n FROM coerced WHERE n = 0")).skipResultsCorrectnessCheckForPushdown().isFullyPushedDown();
-        assertQuery("SELECT count(*) FROM coerced WHERE n = 0", "VALUES 0");
-        // CAST(n AS varchar) is not a simple column predicate, so base-jdbc evaluates it in Trino,
-        // where the coerced value of 0 is compared as read: this is the form users should filter on.
-        assertThat(query("SELECT n FROM coerced WHERE CAST(n AS varchar) = '0'")).isNotFullyPushedDown(FilterNode.class);
-        assertQuery("SELECT count(*) FROM coerced WHERE CAST(n AS varchar) = '0'", "VALUES 1");
+        // the stored TEXT 'abc' reads back as the bigint 0; SQLite would compare the stored value
+        // instead and drop the row, so the predicate has to be evaluated on the value Trino read
+        assertThat(query("SELECT n FROM coerced WHERE n = 0")).isNotFullyPushedDown(FilterNode.class);
+        assertQuery("SELECT count(*) FROM coerced WHERE n = 0", "VALUES 1");
     }
 
     @Test
@@ -209,12 +204,14 @@ public class TestSqliteConnectorQueries
     }
 
     @Test
-    public void testNumericPredicateIsPushedDown()
+    public void testColumnPredicatesStayInTrino()
     {
-        assertThat(query("SELECT id FROM all_types WHERE int_col = 42")).isFullyPushedDown();
-        assertThat(query("SELECT id FROM all_types WHERE real_col > 1")).isFullyPushedDown();
-        assertThat(query("SELECT id FROM all_types WHERE bool_col = true")).isFullyPushedDown();
+        assertThat(query("SELECT id FROM all_types WHERE int_col = 42")).isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT id FROM all_types WHERE real_col > 1")).isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT id FROM all_types WHERE bool_col = true")).isNotFullyPushedDown(FilterNode.class);
         assertQuery("SELECT id FROM all_types WHERE int_col = 42", "VALUES 1");
+        assertQuery("SELECT id FROM all_types WHERE real_col > 1", "VALUES 1");
+        assertQuery("SELECT id FROM all_types WHERE bool_col = true", "VALUES 1");
     }
 
     @Test

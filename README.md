@@ -71,18 +71,16 @@ automatic conversion is attempted.
 A value whose storage class differs from the column's affinity is coerced by SQLite, not by
 the connector: text that is not a number in an `INTEGER` column reads as `0`.
 
-A predicate pushed into SQLite compares against the value as stored, not against the value
-Trino reads back: a text value in an `INTEGER` column reads as `0`, but `WHERE n = 0` pushed
-down never matches it, because SQLite compares the literal `0` against the stored text by
-storage class. Users with mixed storage classes in a column should filter on an expression
-Trino evaluates itself, for example `WHERE CAST(n AS varchar) = '0'`.
+Predicates are evaluated by Trino on that coerced value, so `WHERE n = 0` matches a row whose
+`INTEGER` column holds the text `abc`, exactly as the query result shows it.
 
 ## Pushdown
 
-Predicates on `bigint`, `double` and `boolean` columns and `LIMIT` are pushed into SQLite.
-Predicates on text and binary columns are evaluated by Trino, because a text column may carry
-`COLLATE NOCASE` and SQLite would then match differently than Trino. Aggregations, joins and
-`ORDER BY ... LIMIT` are not pushed down.
+Only `LIMIT` is pushed into SQLite. Every column predicate is evaluated by Trino, because
+SQLite compares a predicate against the value as stored while the connector reads a coerced
+value (text in an `INTEGER` column reads as `0` but does not match a pushed `n = 0`), and
+because a text column may carry `COLLATE NOCASE` and SQLite would then match more than Trino
+does. Aggregations, joins and `ORDER BY ... LIMIT` are not pushed down.
 
 ## Query pass-through
 
