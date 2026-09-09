@@ -117,8 +117,30 @@ public class TestRemoteDatabaseFile
             Path second = remote.current(SESSION);
             assertThat(second).isNotEqualTo(first);
             assertThat(Files.readString(second)).isEqualTo("version two, longer");
-            assertThat(first).doesNotExist();
+            assertThat(first).exists();
         }
+    }
+
+    @Test
+    public void testRetiredCopySurvivesOneRefresh()
+            throws Exception
+    {
+        upload("version one");
+        RemoteDatabaseFile remote = newRemoteFile();
+        Path first = remote.current(SESSION);
+        upload("version two, longer");
+        clock.advance(INTERVAL);
+        Path second = remote.current(SESSION);
+        assertThat(second).isNotEqualTo(first);
+        assertThat(first).exists();
+
+        clock.advance(INTERVAL);
+        Path third = remote.current(SESSION);
+        assertThat(third).isEqualTo(second);
+        assertThat(first).doesNotExist();
+
+        remote.close();
+        assertThat(second).doesNotExist();
     }
 
     @Test

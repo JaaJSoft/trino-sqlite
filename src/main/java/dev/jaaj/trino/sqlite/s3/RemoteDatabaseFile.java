@@ -40,8 +40,11 @@ import static java.util.Objects.requireNonNull;
 /**
  * A local copy of a database object stored on a remote filesystem, refreshed at most once per
  * interval. The new version is downloaded under a fresh name and published before the old file
- * is unlinked, so a descriptor a connection already has open on the old file stays valid on
- * POSIX; on Windows the delete is refused while the file is open and is retried on a later
+ * is unlinked. A copy retired by a refresh is not deleted until the refresh after that: a
+ * connection that read {@link #current(ConnectorSession)} just before a refresh publishes a new
+ * snapshot may still open the retired path, and that open happens well within one refresh
+ * interval, so keeping the retired copy alive for one full interval outlives any such window.
+ * On Windows the delete is refused while the file is still open and is retried on a later
  * refresh.
  */
 public final class RemoteDatabaseFile
@@ -56,8 +59,10 @@ public final class RemoteDatabaseFile
     private final Clock clock;
 
     private final ReentrantLock refreshLock = new ReentrantLock();
-    // guarded by refreshLock
+    // guarded by refreshLock: files retired by the previous refresh, safe to delete now
     private final List<Path> staleFiles = new ArrayList<>();
+    // guarded by refreshLock: files retired by this refresh, deleted on the next one
+    private final List<Path> pendingDeletion = new ArrayList<>();
     // guarded by refreshLock
     private Path directory;
     // guarded by refreshLock
@@ -113,6 +118,9 @@ public final class RemoteDatabaseFile
     private Snapshot refresh(ConnectorSession session, Snapshot previous)
     {
         Instant now = clock.instant();
+        // files this class retired last refresh have now outlived one full interval: safe to delete
+        staleFiles.addAll(pendingDeletion);
+        pendingDeletion.clear();
         try {
             TrinoInputFile inputFile = fileSystemFactory.create(session).newInputFile(location);
             long length = inputFile.length();
@@ -124,7 +132,7 @@ public final class RemoteDatabaseFile
                 Path file = download(inputFile);
                 snapshot = new Snapshot(file, length, lastModified, now);
                 if (previous != null) {
-                    staleFiles.add(previous.file());
+                    pendingDeletion.add(previous.file());
                 }
             }
         }
@@ -195,6 +203,8 @@ public final class RemoteDatabaseFile
             closed = true;
             Snapshot current = snapshot;
             snapshot = null;
+            staleFiles.addAll(pendingDeletion);
+            pendingDeletion.clear();
             if (current != null) {
                 staleFiles.add(current.file());
             }
