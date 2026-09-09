@@ -25,12 +25,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static io.trino.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
@@ -42,10 +45,12 @@ import static java.util.Objects.requireNonNull;
  * interval. The new version is downloaded under a fresh name and published before the old file
  * is unlinked. A copy retired by a refresh is not deleted until the refresh after that: a
  * connection that read {@link #current(ConnectorSession)} just before a refresh publishes a new
- * snapshot may still open the retired path, and that open happens well within one refresh
- * interval, so keeping the retired copy alive for one full interval outlives any such window.
- * On Windows the delete is refused while the file is still open and is retried on a later
- * refresh.
+ * snapshot may still open the retired path. Two things keep such a copy readable: it survives
+ * until the refresh after the one that retired it, and it is never deleted while a lease taken
+ * by {@link #withCurrent(ConnectorSession, PathFunction)} is held on it. The lease is what
+ * covers a zero refresh interval, where two refreshes can run back to back and the grace period
+ * is empty. On Windows the delete is also refused while the file is still open and is retried on
+ * a later refresh.
  */
 public final class RemoteDatabaseFile
         implements Closeable
@@ -63,6 +68,8 @@ public final class RemoteDatabaseFile
     private final List<Path> staleFiles = new ArrayList<>();
     // guarded by refreshLock: files retired by this refresh, deleted on the next one
     private final List<Path> pendingDeletion = new ArrayList<>();
+    // number of in-flight opens per copy; an entry exists only while at least one lease is held
+    private final ConcurrentMap<Path, Integer> leases = new ConcurrentHashMap<>();
     // guarded by refreshLock
     private Path directory;
     // guarded by refreshLock
@@ -108,6 +115,48 @@ public final class RemoteDatabaseFile
         finally {
             refreshLock.unlock();
         }
+    }
+
+    /**
+     * Runs {@code action} on the current copy with a lease held on it, so the file cannot be
+     * deleted by a concurrent refresh while the action is opening it.
+     */
+    public <T> T withCurrent(ConnectorSession session, PathFunction<T> action)
+            throws SQLException
+    {
+        Path file = acquireLease(session);
+        try {
+            return action.apply(file);
+        }
+        finally {
+            releaseLease(file);
+        }
+    }
+
+    @FunctionalInterface
+    public interface PathFunction<T>
+    {
+        T apply(Path file)
+                throws SQLException;
+    }
+
+    private Path acquireLease(ConnectorSession session)
+    {
+        while (true) {
+            Path file = current(session);
+            leases.merge(file, 1, Integer::sum);
+            Snapshot published = snapshot;
+            if (published != null && published.file().equals(file)) {
+                return file;
+            }
+            // the file was retired between the two reads; it may already be on its way out
+            releaseLease(file);
+        }
+    }
+
+    private void releaseLease(Path file)
+    {
+        leases.compute(file, (_, count) -> count == 1 ? null : count - 1);
     }
 
     private boolean isDue(Snapshot current)
@@ -183,6 +232,14 @@ public final class RemoteDatabaseFile
     private void deleteStaleFiles()
     {
         staleFiles.removeIf(file -> {
+            // A copy is deleted only once it is retired and carries no lease, and a lease is only
+            // granted on a path still published after its count was raised. A deleter that read a
+            // count of zero therefore cannot be racing a lease that read the path as published:
+            // that lease's raise precedes its read of the retiring snapshot, which precedes the
+            // write of that snapshot, which precedes this read of the counts.
+            if (leases.containsKey(file)) {
+                return false;
+            }
             try {
                 Files.deleteIfExists(file);
                 return true;

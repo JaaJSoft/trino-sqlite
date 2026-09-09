@@ -23,8 +23,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -144,6 +146,54 @@ public class TestRemoteDatabaseFile
     }
 
     @Test
+    public void testLeasedCopySurvivesRefreshes()
+            throws Exception
+    {
+        upload("version one");
+        try (RemoteDatabaseFile remote = newRemoteFile(Duration.ZERO)) {
+            Path leased = remote.withCurrent(SESSION, file -> {
+                try {
+                    upload("version two, longer");
+                    // the interval is zero, so both calls refresh: the first publishes version two
+                    // and retires the leased copy, the second is the one that would delete it
+                    remote.current(SESSION);
+                    remote.current(SESSION);
+                    assertThat(file).exists();
+                    assertThat(Files.readString(file)).isEqualTo("version one");
+                    return file;
+                }
+                catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+            remote.current(SESSION);
+            assertThat(leased).doesNotExist();
+        }
+    }
+
+    @Test
+    public void testLeaseIsReleasedOnActionFailure()
+            throws Exception
+    {
+        upload("version one");
+        try (RemoteDatabaseFile remote = newRemoteFile()) {
+            Path first = remote.current(SESSION);
+            assertThatThrownBy(() -> remote.withCurrent(SESSION, _ -> {
+                throw new SQLException("the connection could not be opened");
+            }))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessage("the connection could not be opened");
+
+            upload("version two, longer");
+            clock.advance(INTERVAL);
+            assertThat(remote.current(SESSION)).isNotEqualTo(first);
+            clock.advance(INTERVAL);
+            remote.current(SESSION);
+            assertThat(first).doesNotExist();
+        }
+    }
+
+    @Test
     public void testChangedModificationTimeWithSameLengthDownloadsAgain()
             throws Exception
     {
@@ -222,7 +272,12 @@ public class TestRemoteDatabaseFile
 
     private RemoteDatabaseFile newRemoteFile()
     {
-        return new RemoteDatabaseFile(fileSystemFactory, LOCATION, cacheDirectory, INTERVAL, clock);
+        return newRemoteFile(INTERVAL);
+    }
+
+    private RemoteDatabaseFile newRemoteFile(Duration refreshInterval)
+    {
+        return new RemoteDatabaseFile(fileSystemFactory, LOCATION, cacheDirectory, refreshInterval, clock);
     }
 
     private void upload(String content)

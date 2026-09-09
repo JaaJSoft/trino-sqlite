@@ -24,7 +24,6 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Properties;
-import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
@@ -36,14 +35,19 @@ import static java.util.Objects.requireNonNull;
 public final class SqliteConnectionFactory
         implements ConnectionFactory
 {
-    private final Function<ConnectorSession, String> jdbcUrl;
-    private final Properties connectionProperties;
+    private final ConnectionOpener opener;
     private final Runnable onClose;
 
-    private SqliteConnectionFactory(Function<ConnectorSession, String> jdbcUrl, Properties connectionProperties, Runnable onClose)
+    @FunctionalInterface
+    private interface ConnectionOpener
     {
-        this.jdbcUrl = requireNonNull(jdbcUrl, "jdbcUrl is null");
-        this.connectionProperties = requireNonNull(connectionProperties, "connectionProperties is null");
+        Connection open(ConnectorSession session)
+                throws SQLException;
+    }
+
+    private SqliteConnectionFactory(ConnectionOpener opener, Runnable onClose)
+    {
+        this.opener = requireNonNull(opener, "opener is null");
         this.onClose = requireNonNull(onClose, "onClose is null");
     }
 
@@ -52,22 +56,24 @@ public final class SqliteConnectionFactory
         String url = JDBC.PREFIX + path.toAbsolutePath();
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
-        return new SqliteConnectionFactory(_ -> url, config.toProperties(), () -> {});
+        Properties properties = config.toProperties();
+        return new SqliteConnectionFactory(_ -> JDBC.createConnection(url, properties), () -> {});
     }
 
     /**
      * The copy is private to this catalog and nobody writes to it, so {@code immutable=1} lets
      * SQLite skip locking and journal checks on it. The URI form is required for that parameter,
-     * hence OPEN_URI.
+     * hence OPEN_URI. The open runs under a lease so a refresh cannot delete the copy between the
+     * moment its path is read and the moment the driver opens it.
      */
     public static SqliteConnectionFactory forRemoteFile(RemoteDatabaseFile remote)
     {
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
         config.setOpenMode(SQLiteOpenMode.OPEN_URI);
+        Properties properties = config.toProperties();
         return new SqliteConnectionFactory(
-                session -> JDBC.PREFIX + remote.current(session).toUri() + "?immutable=1",
-                config.toProperties(),
+                session -> remote.withCurrent(session, file -> JDBC.createConnection(JDBC.PREFIX + file.toUri() + "?immutable=1", properties)),
                 remote::close);
     }
 
@@ -75,7 +81,7 @@ public final class SqliteConnectionFactory
     public Connection openConnection(ConnectorSession session)
             throws SQLException
     {
-        return JDBC.createConnection(jdbcUrl.apply(session), connectionProperties);
+        return opener.open(session);
     }
 
     @Override
