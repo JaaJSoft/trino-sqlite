@@ -51,11 +51,18 @@ public final class SqliteConnectionFactory
         this.onClose = requireNonNull(onClose, "onClose is null");
     }
 
+    /**
+     * The path travels as a URI because sqlite-jdbc cuts a plain file name at the first {@code ?}
+     * and reads the rest as connection parameters, and a {@code file:} connection-url can decode
+     * back into a name containing one. Unlike a downloaded copy, a local file may be written by
+     * another process, so it is not opened immutable.
+     */
     public static SqliteConnectionFactory forLocalFile(Path path)
     {
-        String url = JDBC.PREFIX + path.toAbsolutePath();
+        String url = JDBC.PREFIX + path.toAbsolutePath().toUri();
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
+        config.setOpenMode(SQLiteOpenMode.OPEN_URI);
         Properties properties = config.toProperties();
         return new SqliteConnectionFactory(_ -> JDBC.createConnection(url, properties), () -> {});
     }

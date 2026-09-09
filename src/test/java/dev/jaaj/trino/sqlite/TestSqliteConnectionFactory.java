@@ -30,6 +30,7 @@ import java.time.Duration;
 import static io.trino.testing.TestingConnectorSession.SESSION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 public class TestSqliteConnectionFactory
 {
@@ -67,6 +68,22 @@ public class TestSqliteConnectionFactory
     }
 
     @Test
+    public void testLocalFileNameWithQuestionMark()
+            throws Exception
+    {
+        // sqlite-jdbc cuts a plain file name at the first '?' and reads the rest as parameters
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"), "Windows forbids '?' in file names");
+        assertSingleRowIsReadable(fixtureNamed("app?cache_size=1.db"));
+    }
+
+    @Test
+    public void testLocalFileNameWithSpaceAndHash()
+            throws Exception
+    {
+        assertSingleRowIsReadable(fixtureNamed("app db#1.db"));
+    }
+
+    @Test
     public void testRemoteFileIsOpenedImmutable()
             throws Exception
     {
@@ -97,5 +114,30 @@ public class TestSqliteConnectionFactory
         // was closed first (resources close in reverse order), so Windows lets the delete through
         assertThat(copy).doesNotExist();
         assertThat(cacheDirectory).isEmptyDirectory();
+    }
+
+    private static Path fixtureNamed(String fileName)
+            throws Exception
+    {
+        Path fixture = SqliteTestDatabase.createInTemporaryDirectory(
+                "CREATE TABLE t (x INTEGER)",
+                "INSERT INTO t VALUES (7)");
+        // the fixture is built under a plain name and renamed, so the driver never has to open
+        // the awkward name for writing
+        Path renamed = Files.move(fixture, fixture.resolveSibling(fileName));
+        renamed.toFile().deleteOnExit();
+        return renamed;
+    }
+
+    private static void assertSingleRowIsReadable(Path database)
+            throws Exception
+    {
+        try (SqliteConnectionFactory factory = SqliteConnectionFactory.forLocalFile(database);
+                Connection connection = factory.openConnection(SESSION);
+                Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery("SELECT x FROM t")) {
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getLong(1)).isEqualTo(7);
+        }
     }
 }
