@@ -68,10 +68,11 @@ default and exposed as `varchar` with `unsupported-type-handling=CONVERT_TO_VARC
 has no date type and applications store dates as ISO text, unix epochs or julian days, so no
 automatic conversion is attempted.
 
-A value whose storage class differs from the column's affinity is coerced by SQLite, not by
-the connector: text that is not a number in an `INTEGER` column reads as `0`.
+SQLite keeps a value whose storage class differs from the column's affinity as it was
+stored: text that is not a number stays text in an `INTEGER` column. The connector reads such
+a column through the driver's numeric getter, which converts that text to `0` at read time.
 
-Predicates are evaluated by Trino on that coerced value, so `WHERE n = 0` matches a row whose
+Predicates are evaluated by Trino on that read value, so `WHERE n = 0` matches a row whose
 `INTEGER` column holds the text `abc`, exactly as the query result shows it.
 
 ## Pushdown
