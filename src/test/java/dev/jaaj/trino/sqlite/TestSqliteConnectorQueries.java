@@ -244,4 +244,23 @@ public class TestSqliteConnectorQueries
         assertThat(query("SELECT id FROM all_types ORDER BY id DESC LIMIT 1")).isNotFullyPushedDown(TopNNode.class);
         assertQuery("SELECT id FROM all_types ORDER BY id DESC LIMIT 1", "VALUES 2");
     }
+
+    @Test
+    public void testQueryTableFunction()
+    {
+        // sqlite-jdbc reports the type of a computed column such as count(*) as NUMERIC, which the
+        // connector otherwise hides; CONVERT_TO_VARCHAR surfaces it instead of failing table-handle resolution
+        Session convert = Session.builder(getSession())
+                .setCatalogSessionProperty("sqlite", "unsupported_type_handling", "CONVERT_TO_VARCHAR")
+                .build();
+        assertQuery(
+                convert,
+                "SELECT * FROM TABLE(sqlite.system.query(query => 'SELECT count(*) AS c FROM all_types'))",
+                "VALUES '2'");
+        // a DELETE has no result columns, so table-handle resolution fails at analysis time, before the
+        // read-only connection would itself reject the write; that earlier failure is what a user hits
+        assertQueryFails(
+                "SELECT * FROM TABLE(sqlite.system.query(query => 'DELETE FROM all_types'))",
+                ".*column 1 out of bounds.*");
+    }
 }

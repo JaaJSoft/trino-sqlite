@@ -80,6 +80,18 @@ Predicates on text and binary columns are evaluated by Trino, because a text col
 `COLLATE NOCASE` and SQLite would then match differently than Trino. Aggregations, joins and
 `ORDER BY ... LIMIT` are not pushed down.
 
+## Query pass-through
+
+```sql
+SELECT * FROM TABLE(sqlite.system.query(query => 'SELECT date(''now'')'));
+```
+
+(`sqlite` is the catalog name as configured; substitute whatever name the `connector.name=sqlite`
+catalog was given.) The query is executed by SQLite itself, as a subquery over a read-only
+connection, so it is useful for SQLite-specific SQL such as date functions or the `json1`
+extension that the connector does not otherwise expose, but it cannot write: the connection is
+read-only regardless of the statement passed to it.
+
 ## S3
 
 The object is downloaded on the first connection into the cache directory. After the refresh
