@@ -227,7 +227,7 @@ public class TestSqliteConnectorQueries
     @Test
     public void testNocaseCollationDoesNotLeakIntoTrino()
     {
-        // pushed down, SQLite's NOCASE collation would match both 'Alice' and 'alice'
+        // if pushed down, SQLite's NOCASE collation would match both 'Alice' and 'alice'
         assertQuery("SELECT count(*) FROM nocase WHERE name = 'alice'", "VALUES 1");
     }
 
