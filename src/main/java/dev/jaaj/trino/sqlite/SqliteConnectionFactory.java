@@ -20,6 +20,7 @@ import org.sqlite.JDBC;
 import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteOpenMode;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -59,7 +60,7 @@ public final class SqliteConnectionFactory
      */
     public static SqliteConnectionFactory forLocalFile(Path path)
     {
-        String url = JDBC.PREFIX + path.toAbsolutePath().toUri();
+        String url = localFileUrl(path);
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
         config.setOpenMode(SQLiteOpenMode.OPEN_URI);
@@ -82,6 +83,14 @@ public final class SqliteConnectionFactory
         return new SqliteConnectionFactory(
                 session -> remote.withCurrent(session, file -> JDBC.createConnection(JDBC.PREFIX + file.toUri() + "?immutable=1", properties)),
                 remote::close);
+    }
+
+    static String localFileUrl(Path path)
+    {
+        URI uri = path.toAbsolutePath().toUri();
+        // SQLite rejects a non-empty URI authority, and file:////server/share/... is how it spells a UNC path
+        String location = uri.getAuthority() == null ? uri.toString() : "file:////" + uri.getAuthority() + uri.getRawPath();
+        return JDBC.PREFIX + location;
     }
 
     @Override

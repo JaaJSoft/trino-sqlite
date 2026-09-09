@@ -31,6 +31,7 @@ import static io.trino.testing.TestingConnectorSession.SESSION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 public class TestSqliteConnectionFactory
 {
@@ -81,6 +82,25 @@ public class TestSqliteConnectionFactory
             throws Exception
     {
         assertSingleRowIsReadable(fixtureNamed("app db#1.db"));
+    }
+
+    @Test
+    public void testLocalFileUrlKeepsUncPathWithoutAuthority()
+    {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"), "UNC paths are a Windows notion");
+        assertThat(SqliteConnectionFactory.localFileUrl(Path.of("\\\\server\\share\\app.db")))
+                .isEqualTo("jdbc:sqlite:file:////server/share/app.db");
+    }
+
+    @Test
+    public void testLocalFileUrlEncodesReservedCharacters()
+            throws Exception
+    {
+        Path path = Files.createTempDirectory("trino-sqlite-test").resolve("app db#1.db");
+        assertThat(SqliteConnectionFactory.localFileUrl(path))
+                .startsWith("jdbc:sqlite:file:///")
+                .contains("app%20db%231.db")
+                .doesNotContain(" ", "#");
     }
 
     @Test

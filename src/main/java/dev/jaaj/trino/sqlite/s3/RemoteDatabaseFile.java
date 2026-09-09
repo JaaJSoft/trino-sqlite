@@ -87,6 +87,11 @@ public final class RemoteDatabaseFile
         this.clock = requireNonNull(clock, "clock is null");
     }
 
+    /**
+     * The path of the current copy, refreshing it first if the interval has elapsed. A caller that
+     * is going to open the file must go through {@link #withCurrent(ConnectorSession, PathFunction)}
+     * instead: a path returned here can be deleted by a refresh before the open reaches it.
+     */
     public Path current(ConnectorSession session)
     {
         Snapshot current = snapshot;
@@ -156,7 +161,7 @@ public final class RemoteDatabaseFile
 
     private void releaseLease(Path file)
     {
-        leases.compute(file, (_, count) -> count == 1 ? null : count - 1);
+        leases.computeIfPresent(file, (_, count) -> count == 1 ? null : count - 1);
     }
 
     private boolean isDue(Snapshot current)

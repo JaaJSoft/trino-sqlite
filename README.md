@@ -26,7 +26,7 @@ s3.aws-secret-key=...
 
 | Property | Default | Description |
 | --- | --- | --- |
-| `connection-url` | required | `jdbc:sqlite:` followed by an absolute local path, a `file:` URI or an `s3://`, `s3a://` or `s3n://` location |
+| `connection-url` | required | `jdbc:sqlite:` followed by an absolute local path, a `file:` URI or an `s3://`, `s3a://` or `s3n://` location. A file whose name contains a `?` has to be given in the `file:` form, percent-encoded as `%3F`: a literal `?` is read as the start of URL parameters and rejected. |
 | `sqlite.s3.refresh-interval` | `1h` | How long a downloaded copy is served before S3 is checked for a newer version. `0s` checks on every connection. |
 | `sqlite.s3.cache-directory` | `${java.io.tmpdir}/trino-sqlite` | Parent of the per-catalog directory holding the downloaded copy |
 | `s3.*` | | The standard Trino S3 properties: `s3.endpoint`, `s3.region`, `s3.path-style-access`, credentials, IAM roles |
